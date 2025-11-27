@@ -14,7 +14,7 @@ const storage = {
       return { commands: {}, tags: {} };
     }
   },
-  
+
   _saveData: (data) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -24,14 +24,14 @@ const storage = {
       return false;
     }
   },
-  
+
   get: async (key) => {
     const data = storage._getData();
     const [prefix, id] = key.split(':');
     const store = prefix === 'dsttag' ? data.tags : data.commands;
     return store[id] ? { value: store[id] } : null;
   },
-  
+
   set: async (key, value) => {
     const data = storage._getData();
     const [prefix, id] = key.split(':');
@@ -39,7 +39,7 @@ const storage = {
     data[store][id] = value;
     return storage._saveData(data);
   },
-  
+
   delete: async (key) => {
     const data = storage._getData();
     const [prefix, id] = key.split(':');
@@ -50,7 +50,7 @@ const storage = {
     }
     return true;
   },
-  
+
   list: async (prefix) => {
     const data = storage._getData();
     const store = prefix === 'dsttag:' ? data.tags : data.commands;
@@ -64,13 +64,13 @@ const IMAGE_CACHE = {};
 
 const fetchDSTImage = async (itemName) => {
   if (!itemName || itemName.trim() === '') return null;
-  
+
   // Check cache first
   const cacheKey = itemName.toLowerCase().trim();
   if (IMAGE_CACHE[cacheKey]) {
     return IMAGE_CACHE[cacheKey];
   }
-  
+
   // Check localStorage cache
   try {
     const cached = localStorage.getItem(`dst_img_${cacheKey}`);
@@ -85,7 +85,7 @@ const fetchDSTImage = async (itemName) => {
   } catch (e) {
     console.error('Cache read error:', e);
   }
-  
+
   // Convert item name to potential filenames
   const formatFilename = (name) => {
     // Common DST wiki filename patterns
@@ -98,24 +98,24 @@ const fetchDSTImage = async (itemName) => {
     ];
     return patterns;
   };
-  
+
   const filenames = formatFilename(itemName);
-  
+
   // Try each filename pattern
   for (const filename of filenames) {
     try {
       const encodedFilename = encodeURIComponent(`File:${filename}`);
       const apiUrl = `https://dontstarve.fandom.com/api.php?action=query&titles=${encodedFilename}&prop=imageinfo&iiprop=url&format=json&origin=*`;
-      
+
       const response = await fetch(apiUrl);
       const data = await response.json();
-      
+
       const pages = data.query?.pages;
       if (pages) {
         const page = Object.values(pages)[0];
         if (page.imageinfo && page.imageinfo[0]?.url) {
           const imageUrl = page.imageinfo[0].url;
-          
+
           // Cache the result
           IMAGE_CACHE[cacheKey] = imageUrl;
           try {
@@ -126,7 +126,7 @@ const fetchDSTImage = async (itemName) => {
           } catch (e) {
             console.error('Cache write error:', e);
           }
-          
+
           return imageUrl;
         }
       }
@@ -134,7 +134,7 @@ const fetchDSTImage = async (itemName) => {
       console.error(`Error fetching image for ${filename}:`, error);
     }
   }
-  
+
   // Return fallback
   return null;
 };
@@ -192,23 +192,23 @@ export default function DSTCommandManager() {
         if (cmd.image || autoFetchedImages[cmd.id] || fetchingImages[cmd.id]) {
           continue;
         }
-        
+
         setFetchingImages(prev => ({ ...prev, [cmd.id]: true }));
-        
+
         const imageUrl = await fetchDSTImage(cmd.name);
-        
+
         setFetchingImages(prev => {
           const updated = { ...prev };
           delete updated[cmd.id];
           return updated;
         });
-        
+
         if (imageUrl) {
           setAutoFetchedImages(prev => ({ ...prev, [cmd.id]: imageUrl }));
         }
       }
     };
-    
+
     if (commands.length > 0) {
       fetchImagesForCommands();
     }
@@ -316,13 +316,13 @@ export default function DSTCommandManager() {
         alert('Please select an image file');
         return;
       }
-      
+
       // 3MB limit for animated images (GIF, WebP, APNG)
       if (file.size > 3000000) {
         alert('Image is too large. Please use an image smaller than 3MB.');
         return;
       }
-      
+
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target.result;
@@ -346,11 +346,11 @@ export default function DSTCommandManager() {
 
   const handleSave = async (id, e) => {
     if (e) e.stopPropagation();
-    
+
     const trimmedName = editName.trim();
     const trimmedCommand = editCommand.trim();
     const trimmedImage = editImage.trim();
-    
+
     if (!trimmedName || !trimmedCommand) {
       alert('Both name and command are required!');
       return;
@@ -361,17 +361,17 @@ export default function DSTCommandManager() {
 
     try {
       const currentCmd = commands.find(c => c.id === id);
-      const updatedCommand = { 
-        id, 
-        name: trimmedName, 
-        command: trimmedCommand, 
-        image: trimmedImage, 
+      const updatedCommand = {
+        id,
+        name: trimmedName,
+        command: trimmedCommand,
+        image: trimmedImage,
         tags: editTags,
         category: editCategory,
         favorite: currentCmd?.favorite || false
       };
       const commandJson = JSON.stringify(updatedCommand);
-      
+
       // Check if the data is too large (approaching 5MB limit)
       // Note: Base64 encoding increases size by ~33%
       if (commandJson.length > 4800000) {
@@ -379,33 +379,33 @@ export default function DSTCommandManager() {
         setSaving(false);
         return;
       }
-      
+
       console.log('Saving command, total size:', Math.round(commandJson.length / 1024), 'KB');
       const result = await storage.set(`dst:${id}`, commandJson);
-      
+
       if (!result) {
         throw new Error('Storage operation returned null');
       }
-      
+
       console.log('Command saved successfully');
-      
+
       // Add to commands list if it's a new command
       if (!commands.find(c => c.id === id)) {
         setCommands([...commands, updatedCommand]);
       } else {
         setCommands(commands.map(c => c.id === id ? updatedCommand : c));
       }
-      
+
       setSaving(false);
       setSaveSuccess(true);
-      
+
       // Show success message for 1.5 seconds before closing
       setTimeout(() => {
         setEditingId(null);
         setShowCommandEditor(false);
         setSaveSuccess(false);
         setImageErrors(prev => {
-          const newErrors = {...prev};
+          const newErrors = { ...prev };
           delete newErrors[id];
           return newErrors;
         });
@@ -419,7 +419,7 @@ export default function DSTCommandManager() {
 
   const handleCancel = async (id, e) => {
     if (e) e.stopPropagation();
-    
+
     setEditingId(null);
     setShowCommandEditor(false);
     setEditName('');
@@ -434,21 +434,21 @@ export default function DSTCommandManager() {
       e.stopPropagation();
       e.preventDefault();
     }
-    
+
     // Handle both command object and ID
     const cmd = typeof cmdOrId === 'object' ? cmdOrId : commands.find(c => c.id === cmdOrId);
     if (!cmd) {
       console.error('Command not found for deletion');
       return;
     }
-    
+
     console.log('Opening delete confirmation for:', cmd.name, 'ID:', cmd.id);
     setDeleteConfirm({ show: true, type: 'command', item: cmd, deleting: false });
   };
 
   const confirmDelete = async () => {
     const { type, item } = deleteConfirm;
-    
+
     if (type === 'command') {
       await executeDeleteCommand(item);
     } else if (type === 'tag') {
@@ -458,32 +458,32 @@ export default function DSTCommandManager() {
 
   const executeDeleteCommand = async (cmd) => {
     setDeleteConfirm(prev => ({ ...prev, deleting: true, error: null }));
-    
+
     try {
       console.log('Deleting from storage...');
-      
+
       const result = await storage.delete(`dst:${cmd.id}`);
       console.log('Storage delete result:', result);
-      
+
       // Validate that the delete operation succeeded
       if (!result) {
         throw new Error('Failed to save changes to storage');
       }
-      
+
       // Update state only after successful deletion
       setCommands(prevCommands => {
         const updated = prevCommands.filter(c => c.id !== cmd.id);
         console.log('Commands before delete:', prevCommands.length, 'after:', updated.length);
         return updated;
       });
-      
+
       // Close editor modal if it was open for this command
       if (editingId === cmd.id) {
         console.log('Closing editor modal');
         setShowCommandEditor(false);
         setEditingId(null);
       }
-      
+
       console.log('✓ Command deleted successfully');
       setDeleteConfirm({ show: false, type: null, item: null, deleting: false, error: null });
     } catch (error) {
@@ -495,7 +495,7 @@ export default function DSTCommandManager() {
 
   const handleCardClick = async (cmd) => {
     if (editingId === cmd.id) return;
-    
+
     try {
       await navigator.clipboard.writeText(cmd.command);
       setCopiedId(cmd.id);
@@ -524,7 +524,7 @@ export default function DSTCommandManager() {
 
   const handleSaveTag = async (id) => {
     const trimmedName = editTagName.trim();
-    
+
     if (!trimmedName) {
       alert('Tag name is required!');
       return;
@@ -540,7 +540,7 @@ export default function DSTCommandManager() {
       const oldTag = tags.find(t => t.id === id);
       const updatedTag = { id, name: trimmedName, color: editTagColor };
       await storage.set(`dsttag:${id}`, JSON.stringify(updatedTag));
-      
+
       // Update tag name in all commands that use it
       if (oldTag && oldTag.name !== trimmedName) {
         for (const cmd of commands) {
@@ -552,7 +552,7 @@ export default function DSTCommandManager() {
           }
         }
       }
-      
+
       setTags(tags.map(t => t.id === id ? updatedTag : t));
       setEditingTagId(null);
     } catch (error) {
@@ -574,13 +574,13 @@ export default function DSTCommandManager() {
       e.stopPropagation();
       e.preventDefault();
     }
-    
+
     const tag = tags.find(t => t.id === id);
     if (!tag) {
       console.error('Tag not found for deletion');
       return;
     }
-    
+
     console.log('Opening delete confirmation for tag:', tag.name, 'ID:', id);
     setDeleteConfirm({ show: true, type: 'tag', item: tag, deleting: false });
   };
@@ -592,7 +592,7 @@ export default function DSTCommandManager() {
       console.log('Deleting tag from storage...');
       const result = await storage.delete(`dsttag:${tag.id}`);
       console.log('Tag storage delete result:', result);
-      
+
       // Remove tag from all commands
       for (const cmd of commands) {
         if (cmd.tags && cmd.tags.includes(tag.name)) {
@@ -602,17 +602,17 @@ export default function DSTCommandManager() {
           setCommands(prev => prev.map(c => c.id === cmd.id ? updatedCommand : c));
         }
       }
-      
+
       setTags(prevTags => {
         const updated = prevTags.filter(t => t.id !== tag.id);
         console.log('Tags after delete:', updated.length);
         return updated;
       });
-      
+
       if (activeTag === tag.name) {
         setActiveTag('all');
       }
-      
+
       console.log('Tag deleted successfully');
       setDeleteConfirm({ show: false, type: null, item: null, deleting: false, error: null });
     } catch (error) {
@@ -623,17 +623,17 @@ export default function DSTCommandManager() {
 
   const toggleFavorite = async (cmd, e) => {
     e.stopPropagation();
-    
+
     // Show brief saving state on the star
     const starElement = e.currentTarget;
     const originalTitle = starElement.title;
     starElement.title = 'Saving...';
-    
+
     try {
       const updatedCommand = { ...cmd, favorite: !cmd.favorite };
       await storage.set(`dst:${cmd.id}`, JSON.stringify(updatedCommand));
       setCommands(commands.map(c => c.id === cmd.id ? updatedCommand : c));
-      
+
       // Brief success feedback
       starElement.title = 'Saved!';
       setTimeout(() => {
@@ -646,34 +646,34 @@ export default function DSTCommandManager() {
     }
   };
 
-  const filteredCommands = activeTag === 'all' 
-    ? commands 
+  const filteredCommands = activeTag === 'all'
+    ? commands
     : activeTag === 'favorites'
-    ? commands.filter(cmd => cmd.favorite)
-    : CATEGORIES.find(cat => cat.id === activeTag)
-    ? commands.filter(cmd => cmd.category === activeTag)
-    : commands.filter(cmd => cmd.tags && cmd.tags.includes(activeTag));
+      ? commands.filter(cmd => cmd.favorite)
+      : CATEGORIES.find(cat => cat.id === activeTag)
+        ? commands.filter(cmd => cmd.category === activeTag)
+        : commands.filter(cmd => cmd.tags && cmd.tags.includes(activeTag));
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-white text-xl">Loading commands...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-800 to-slate-900 p-8">
+    <div className="min-h-screen bg-linear-to-br from-slate-800 to-slate-900 p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-4xl font-bold text-white">DST Command Manager</h1>
           <div className="flex gap-3">
             <button
               onClick={() => setShowTagManager(!showTagManager)}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors shadow-lg"
+              className=" bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-full flex items-center gap-2 transition-colors shadow-lg"
             >
               <Tag size={20} />
-              Manage Tags
+              {/* Manage Tags */}
             </button>
             <button
               onClick={addNewCommand}
@@ -689,7 +689,7 @@ export default function DSTCommandManager() {
         {showTagManager && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white">
+              <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white [&_input]:placeholder:text-blue-500 [&_textarea]:placeholder:text-gray-500">
                 <h2 className="text-2xl font-bold text-gray-800">Manage Tags</h2>
                 <button
                   onClick={() => setShowTagManager(false)}
@@ -716,7 +716,7 @@ export default function DSTCommandManager() {
                             value={editTagName}
                             onChange={(e) => setEditTagName(e.target.value)}
                             placeholder="Tag name"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                           <div className="flex items-center gap-3">
                             <label className="text-sm font-medium text-gray-700">Color:</label>
@@ -726,7 +726,7 @@ export default function DSTCommandManager() {
                               onChange={(e) => setEditTagColor(e.target.value)}
                               className="w-16 h-10 rounded cursor-pointer"
                             />
-                            <div 
+                            <div
                               className="flex-1 px-3 py-2 rounded text-white text-center font-medium"
                               style={{ backgroundColor: editTagColor }}
                             >
@@ -753,7 +753,7 @@ export default function DSTCommandManager() {
                       ) : (
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <span 
+                            <span
                               className="px-4 py-2 rounded-full text-white font-medium"
                               style={{ backgroundColor: tag.color }}
                             >
@@ -798,7 +798,7 @@ export default function DSTCommandManager() {
         {showCommandEditor && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white">
+              <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white [&_input]:placeholder:text-blue-500 [&_textarea]:placeholder:text-gray-500">
                 <h2 className="text-2xl font-bold text-gray-800">
                   {commands.find(c => c.id === editingId) ? 'Edit Command' : 'Add New Command'}
                 </h2>
@@ -827,7 +827,7 @@ export default function DSTCommandManager() {
               </div>
               <div className="p-6 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-500 mb-2">
                     Command Name *
                   </label>
                   <input
@@ -835,12 +835,12 @@ export default function DSTCommandManager() {
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     placeholder="e.g., God Mode"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-500 mb-2">
                     Upload Custom Image (optional)
                   </label>
                   <p className="text-xs text-gray-500 mb-2">
@@ -850,13 +850,13 @@ export default function DSTCommandManager() {
                     type="file"
                     accept="image/*,.webp"
                     onChange={handleImageUpload}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                   />
                   {editImage && (
                     <div className="mt-3 flex justify-center">
-                      <img 
-                        src={editImage} 
-                        alt="Preview" 
+                      <img
+                        src={editImage}
+                        alt="Preview"
                         className="w-40 h-40 object-contain bg-gray-50 rounded p-2 border border-gray-200"
                       />
                     </div>
@@ -864,17 +864,16 @@ export default function DSTCommandManager() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-500 mb-2">
                     Category
                   </label>
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setEditCategory(null)}
-                      className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
-                        editCategory === null
-                          ? 'bg-gray-300 ring-2 ring-offset-2 ring-gray-400'
-                          : 'bg-gray-200 opacity-50 hover:opacity-100'
-                      }`}
+                      className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${editCategory === null
+                        ? 'bg-gray-400 ring-2 ring-offset-2 ring-gray-400'
+                        : 'bg-gray-400 opacity-50 hover:opacity-100'
+                        }`}
                     >
                       None
                     </button>
@@ -882,12 +881,11 @@ export default function DSTCommandManager() {
                       <button
                         key={category.id}
                         onClick={() => setEditCategory(category.id)}
-                        className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
-                          editCategory === category.id
-                            ? 'ring-2 ring-offset-2 ring-gray-400'
-                            : 'opacity-50 hover:opacity-100'
-                        }`}
-                        style={{ 
+                        className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${editCategory === category.id
+                          ? 'ring-2 ring-offset-2 ring-gray-400'
+                          : 'opacity-50 hover:opacity-100'
+                          }`}
+                        style={{
                           backgroundColor: category.color,
                           color: 'white'
                         }}
@@ -899,7 +897,7 @@ export default function DSTCommandManager() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-500 mb-2">
                     Tags
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -907,12 +905,11 @@ export default function DSTCommandManager() {
                       <button
                         key={tag.id}
                         onClick={() => toggleTag(tag.name)}
-                        className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
-                          editTags.includes(tag.name)
-                            ? 'ring-2 ring-offset-2 ring-gray-400'
-                            : 'opacity-50 hover:opacity-100'
-                        }`}
-                        style={{ 
+                        className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${editTags.includes(tag.name)
+                          ? 'ring-2 ring-offset-2 ring-gray-400'
+                          : 'opacity-50 hover:opacity-100'
+                          }`}
+                        style={{
                           backgroundColor: tag.color,
                           color: 'white'
                         }}
@@ -924,7 +921,7 @@ export default function DSTCommandManager() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-500 mb-2">
                     Command Code *
                   </label>
                   <textarea
@@ -932,7 +929,7 @@ export default function DSTCommandManager() {
                     onChange={(e) => setEditCommand(e.target.value)}
                     placeholder='e.g., c_godmode()'
                     rows={4}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 text-gray-900 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
@@ -940,13 +937,12 @@ export default function DSTCommandManager() {
                   <button
                     onClick={(e) => handleSave(editingId, e)}
                     disabled={saving || saveSuccess}
-                    className={`flex-1 px-6 py-3 rounded-md flex items-center justify-center gap-2 transition-colors font-medium ${
-                      saveSuccess
-                        ? 'bg-green-600 text-white cursor-default'
-                        : saving
+                    className={`flex-1 px-6 py-3 rounded-md flex items-center justify-center gap-2 transition-colors font-medium ${saveSuccess
+                      ? 'bg-green-600 text-white cursor-default'
+                      : saving
                         ? 'bg-gray-400 text-white cursor-not-allowed'
                         : 'bg-green-600 hover:bg-green-700 text-white'
-                    }`}
+                      }`}
                   >
                     {saveSuccess ? (
                       <>
@@ -1041,21 +1037,19 @@ export default function DSTCommandManager() {
         <div className="mb-6 flex flex-wrap gap-2">
           <button
             onClick={() => setActiveTag('all')}
-            className={`px-4 py-2 rounded-full font-medium transition-all ${
-              activeTag === 'all'
-                ? 'bg-white text-gray-800 shadow-lg'
-                : 'bg-slate-700 text-white hover:bg-slate-600'
-            }`}
+            className={`px-4 py-2 rounded-full font-medium transition-all ${activeTag === 'all'
+              ? 'bg-white text-gray-800 shadow-lg'
+              : 'bg-slate-700 text-white hover:bg-slate-600'
+              }`}
           >
             All ({commands.length})
           </button>
           <button
             onClick={() => setActiveTag('favorites')}
-            className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${
-              activeTag === 'favorites'
-                ? 'bg-yellow-500 text-white shadow-lg'
-                : 'bg-slate-700 text-white hover:bg-slate-600'
-            }`}
+            className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${activeTag === 'favorites'
+              ? 'bg-yellow-500 text-white shadow-lg'
+              : 'bg-slate-700 text-white hover:bg-slate-600'
+              }`}
           >
             <Star size={16} fill={activeTag === 'favorites' ? 'white' : 'none'} />
             Favorites ({commands.filter(cmd => cmd.favorite).length})
@@ -1064,11 +1058,10 @@ export default function DSTCommandManager() {
             <button
               key={category.id}
               onClick={() => setActiveTag(category.id)}
-              className={`px-4 py-2 rounded-full font-medium transition-all ${
-                activeTag === category.id
-                  ? 'bg-white text-gray-800 shadow-lg'
-                  : 'bg-slate-700 text-white hover:bg-slate-600'
-              }`}
+              className={`px-4 py-2 rounded-full font-medium transition-all ${activeTag === category.id
+                ? 'bg-white text-gray-800 shadow-lg'
+                : 'bg-slate-700 text-white hover:bg-slate-600'
+                }`}
             >
               {category.name} ({commands.filter(cmd => cmd.category === category.id).length})
             </button>
@@ -1077,12 +1070,11 @@ export default function DSTCommandManager() {
             <button
               key={tag.id}
               onClick={() => setActiveTag(tag.name)}
-              className={`px-4 py-2 rounded-full font-medium transition-all ${
-                activeTag === tag.name
-                  ? 'shadow-lg ring-2 ring-white'
-                  : 'hover:opacity-80'
-              }`}
-              style={{ 
+              className={`px-4 py-2 rounded-full font-medium transition-all ${activeTag === tag.name
+                ? 'shadow-lg ring-2 ring-white'
+                : 'hover:opacity-80'
+                }`}
+              style={{
                 backgroundColor: tag.color,
                 color: 'white'
               }}
@@ -1094,16 +1086,16 @@ export default function DSTCommandManager() {
 
         {filteredCommands.length === 0 ? (
           <div className="text-center text-white text-xl mt-16">
-            {activeTag === 'all' 
-              ? "No commands yet. Click 'Add New Command' to get started!"
+            {activeTag === 'all'
+              ? "No commands yet."
               : activeTag === 'favorites'
-              ? "No favorite commands yet. Click the star icon on any command to add it to favorites!"
-              : CATEGORIES.find(cat => cat.id === activeTag)
-              ? `No commands in the "${CATEGORIES.find(cat => cat.id === activeTag).name}" category. Add or edit commands to assign this category.`
-              : `No commands with tag "${activeTag}". Try a different tag or add new commands.`}
+                ? "No favorite commands yet. Click the star icon on any command to add it to favorites!"
+                : CATEGORIES.find(cat => cat.id === activeTag)
+                  ? `No commands in the "${CATEGORIES.find(cat => cat.id === activeTag).name}" category. Add or edit commands to assign this category.`
+                  : `No commands with tag "${activeTag}". Try a different tag or add new commands.`}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-6">
             {filteredCommands.map(cmd => (
               <div
                 key={cmd.id}
@@ -1121,7 +1113,7 @@ export default function DSTCommandManager() {
                       <Star size={20} fill={cmd.favorite ? '#eab308' : 'none'} stroke="#eab308" strokeWidth={2} />
                     </button>
                     {cmd.category && (
-                      <span 
+                      <span
                         className="px-2 py-1 rounded-full text-xs font-medium text-white"
                         style={{ backgroundColor: CATEGORIES.find(c => c.id === cmd.category)?.color || '#6b7280' }}
                       >
@@ -1164,14 +1156,14 @@ export default function DSTCommandManager() {
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                       </div>
                     )}
-                    <img 
-                      src={cmd.image || autoFetchedImages[cmd.id]} 
+                    <img
+                      src={cmd.image || autoFetchedImages[cmd.id]}
                       alt={cmd.name}
                       className="w-40 h-40 object-contain"
                       onLoad={() => console.log('Image displayed successfully for:', cmd.name)}
                       onError={(e) => {
                         console.error('Image display error for:', cmd.name);
-                        setImageErrors(prev => ({...prev, [cmd.id]: true}));
+                        setImageErrors(prev => ({ ...prev, [cmd.id]: true }));
                       }}
                     />
                   </div>
@@ -1197,7 +1189,7 @@ export default function DSTCommandManager() {
                     {cmd.tags.map(tagName => {
                       const tag = tags.find(t => t.name === tagName);
                       return tag ? (
-                        <span 
+                        <span
                           key={tagName}
                           className="px-2 py-1 rounded-full text-xs font-medium text-white"
                           style={{ backgroundColor: tag.color }}
