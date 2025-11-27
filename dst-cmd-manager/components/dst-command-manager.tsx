@@ -16,7 +16,7 @@ const storage = {
     }
   },
 
-  _saveData: (data: any) => {
+  _saveData: (data) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       return true;
