@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Save, X, Tag, FolderOpen, Star } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Tag, FolderOpen, Star, Shield, Eye } from 'lucide-react';
 
 // localStorage-based storage utility
 const STORAGE_KEY = 'dst-command-manager-data';
+const VIEWER_FAVORITES_KEY = 'dst-viewer-favorites';
 
 const storage = {
   _getData: () => {
@@ -56,6 +57,40 @@ const storage = {
     const store = prefix === 'dsttag:' ? data.tags : data.commands;
     const keys = Object.keys(store).map(id => `${prefix}${id}`);
     return { keys };
+  }
+};
+
+// Viewer favorites stored separately in browser localStorage
+const viewerFavoritesStorage = {
+  get: () => {
+    try {
+      const data = localStorage.getItem(VIEWER_FAVORITES_KEY);
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.error('Error reading viewer favorites:', e);
+      return {};
+    }
+  },
+
+  set: (favorites) => {
+    try {
+      localStorage.setItem(VIEWER_FAVORITES_KEY, JSON.stringify(favorites));
+      return true;
+    } catch (e) {
+      console.error('Error saving viewer favorites:', e);
+      return false;
+    }
+  },
+
+  toggle: (commandId) => {
+    const favorites = viewerFavoritesStorage.get();
+    if (favorites[commandId]) {
+      delete favorites[commandId];
+    } else {
+      favorites[commandId] = true;
+    }
+    viewerFavoritesStorage.set(favorites);
+    return favorites;
   }
 };
 
@@ -178,10 +213,14 @@ export default function DSTCommandManager() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [autoFetchedImages, setAutoFetchedImages] = useState({});
   const [fetchingImages, setFetchingImages] = useState({});
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [viewerFavorites, setViewerFavorites] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState({ show: false, type: null, item: null, deleting: false, error: null });
 
   useEffect(() => {
     loadData();
+    // Load viewer favorites from browser localStorage
+    setViewerFavorites(viewerFavoritesStorage.get());
   }, []);
 
   // Auto-fetch images for commands that don't have manual images
@@ -443,7 +482,7 @@ export default function DSTCommandManager() {
     }
 
     console.log('Opening delete confirmation for:', cmd.name, 'ID:', cmd.id);
-    setDeleteConfirm({ show: true, type: 'command', item: cmd, deleting: false });
+    setDeleteConfirm({ show: true, type: 'command', item: cmd, deleting: false, error: null });
   };
 
   const confirmDelete = async () => {
@@ -582,7 +621,7 @@ export default function DSTCommandManager() {
     }
 
     console.log('Opening delete confirmation for tag:', tag.name, 'ID:', id);
-    setDeleteConfirm({ show: true, type: 'tag', item: tag, deleting: false });
+    setDeleteConfirm({ show: true, type: 'tag', item: tag, deleting: false, error: null });
   };
 
   const executeDeleteTag = async (tag) => {
@@ -624,64 +663,105 @@ export default function DSTCommandManager() {
   const toggleFavorite = async (cmd, e) => {
     e.stopPropagation();
 
-    // Show brief saving state on the star
-    const starElement = e.currentTarget;
-    const originalTitle = starElement.title;
-    starElement.title = 'Saving...';
+    if (isAdminMode) {
+      // Admin mode: save to main storage
+      const starElement = e.currentTarget;
+      const originalTitle = starElement.title;
+      starElement.title = 'Saving...';
 
-    try {
-      const updatedCommand = { ...cmd, favorite: !cmd.favorite };
-      await storage.set(`dst:${cmd.id}`, JSON.stringify(updatedCommand));
-      setCommands(commands.map(c => c.id === cmd.id ? updatedCommand : c));
+      try {
+        const updatedCommand = { ...cmd, favorite: !cmd.favorite };
+        await storage.set(`dst:${cmd.id}`, JSON.stringify(updatedCommand));
+        setCommands(commands.map(c => c.id === cmd.id ? updatedCommand : c));
 
-      // Brief success feedback
-      starElement.title = 'Saved!';
-      setTimeout(() => {
-        starElement.title = updatedCommand.favorite ? 'Remove from favorites' : 'Add to favorites';
-      }, 1000);
-    } catch (error) {
-      console.error('Error toggling favorite:', error);
-      starElement.title = originalTitle;
-      alert('Failed to update favorite status.');
+        starElement.title = 'Saved!';
+        setTimeout(() => {
+          starElement.title = updatedCommand.favorite ? 'Remove from favorites' : 'Add to favorites';
+        }, 1000);
+      } catch (error) {
+        console.error('Error toggling favorite:', error);
+        starElement.title = originalTitle;
+      }
+    } else {
+      // Viewer mode: save to browser localStorage separately
+      const newViewerFavorites = viewerFavoritesStorage.toggle(cmd.id);
+      setViewerFavorites(newViewerFavorites);
+    }
+  };
+
+  // Helper function to check if a command is favorited (considers both admin and viewer favorites)
+  const isFavorited = (cmd) => {
+    if (isAdminMode) {
+      return cmd.favorite;
+    } else {
+      // In viewer mode, show viewer's personal favorites OR admin-set favorites
+      return viewerFavorites[cmd.id] || cmd.favorite;
+    }
+  };
+
+  // Get favorites count based on mode
+  const getFavoritesCount = () => {
+    if (isAdminMode) {
+      return commands.filter(cmd => cmd.favorite).length;
+    } else {
+      return commands.filter(cmd => viewerFavorites[cmd.id] || cmd.favorite).length;
     }
   };
 
   const filteredCommands = activeTag === 'all'
     ? commands
     : activeTag === 'favorites'
-      ? commands.filter(cmd => cmd.favorite)
+      ? commands.filter(cmd => isFavorited(cmd))
       : CATEGORIES.find(cat => cat.id === activeTag)
         ? commands.filter(cmd => cmd.category === activeTag)
         : commands.filter(cmd => cmd.tags && cmd.tags.includes(activeTag));
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-slate-800 to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-white text-xl">Loading commands...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-800 to-slate-900 p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-800 to-slate-900 p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-white">DST Command Manager</h1>
-          <div className="flex gap-3">
+          <h1 className="text-xl font-bold text-white">▬</h1>
+          <div className="flex gap-3 items-center">
+            {/* Admin/Viewer Mode Toggle */}
             <button
-              onClick={() => setShowTagManager(!showTagManager)}
-              className=" bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-full flex items-center gap-2 transition-colors shadow-lg"
+              onClick={() => setIsAdminMode(!isAdminMode)}
+              className={`px-4 py-3 rounded-lg flex items-center gap-2 transition-colors shadow-lg cursor-pointer ${isAdminMode
+                ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                : 'bg-slate-600 hover:bg-slate-700 text-white'
+                }`}
+              title={isAdminMode ? 'Switch to Viewer Mode' : 'Switch to Admin Mode'}
             >
-              <Tag size={20} />
-              {/* Manage Tags */}
+              {isAdminMode ? <Shield size={20} /> : <Eye size={20} />}
+              {isAdminMode ? 'Admin' : 'Viewer'}
             </button>
-            <button
-              onClick={addNewCommand}
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors shadow-lg"
-            >
-              <Plus size={20} />
-              Add New Command
-            </button>
+
+            {/* Admin-only buttons */}
+            {isAdminMode && (
+              <>
+                <button
+                  onClick={() => setShowTagManager(!showTagManager)}
+                  className="bg-slate-600 hover:bg-slate-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors shadow-lg cursor-pointer"
+                >
+                  <Tag size={20} />
+                  Tags
+                </button>
+                <button
+                  onClick={addNewCommand}
+                  className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors shadow-lg cursor-pointer"
+                >
+                  <Plus size={20} />
+                  Command
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -689,7 +769,7 @@ export default function DSTCommandManager() {
         {showTagManager && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white [&_input]:placeholder:text-blue-500 [&_textarea]:placeholder:text-gray-500">
+              <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white">
                 <h2 className="text-2xl font-bold text-gray-800">Manage Tags</h2>
                 <button
                   onClick={() => setShowTagManager(false)}
@@ -716,7 +796,7 @@ export default function DSTCommandManager() {
                             value={editTagName}
                             onChange={(e) => setEditTagName(e.target.value)}
                             placeholder="Tag name"
-                            className="w-full px-3 py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                           <div className="flex items-center gap-3">
                             <label className="text-sm font-medium text-gray-700">Color:</label>
@@ -798,7 +878,7 @@ export default function DSTCommandManager() {
         {showCommandEditor && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-              <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white [&_input]:placeholder:text-blue-500 [&_textarea]:placeholder:text-gray-500">
+              <div className="p-6 border-b border-gray-200 flex justify-between items-center sticky top-0 bg-white">
                 <h2 className="text-2xl font-bold text-gray-800">
                   {commands.find(c => c.id === editingId) ? 'Edit Command' : 'Add New Command'}
                 </h2>
@@ -827,7 +907,7 @@ export default function DSTCommandManager() {
               </div>
               <div className="p-6 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Command Name *
                   </label>
                   <input
@@ -835,12 +915,12 @@ export default function DSTCommandManager() {
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     placeholder="e.g., God Mode"
-                    className="w-full px-3 py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Upload Custom Image (optional)
                   </label>
                   <p className="text-xs text-gray-500 mb-2">
@@ -850,7 +930,7 @@ export default function DSTCommandManager() {
                     type="file"
                     accept="image/*,.webp"
                     onChange={handleImageUpload}
-                    className="w-full px-3 py-2 border border-gray-300 text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                   />
                   {editImage && (
                     <div className="mt-3 flex justify-center">
@@ -864,15 +944,15 @@ export default function DSTCommandManager() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Category
                   </label>
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setEditCategory(null)}
                       className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${editCategory === null
-                        ? 'bg-gray-400 ring-2 ring-offset-2 ring-gray-400'
-                        : 'bg-gray-400 opacity-50 hover:opacity-100'
+                        ? 'bg-gray-300 ring-2 ring-offset-2 ring-gray-400'
+                        : 'bg-gray-200 opacity-50 hover:opacity-100'
                         }`}
                     >
                       None
@@ -897,7 +977,7 @@ export default function DSTCommandManager() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Tags
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -921,7 +1001,7 @@ export default function DSTCommandManager() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Command Code *
                   </label>
                   <textarea
@@ -929,7 +1009,7 @@ export default function DSTCommandManager() {
                     onChange={(e) => setEditCommand(e.target.value)}
                     placeholder='e.g., c_godmode()'
                     rows={4}
-                    className="w-full px-3 py-2 text-gray-900 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
@@ -957,7 +1037,7 @@ export default function DSTCommandManager() {
                     ) : (
                       <>
                         <Save size={20} />
-                        Save Command
+                        Save
                       </>
                     )}
                   </button>
@@ -1046,13 +1126,13 @@ export default function DSTCommandManager() {
           </button>
           <button
             onClick={() => setActiveTag('favorites')}
-            className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${activeTag === 'favorites'
+            className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2te ${activeTag === 'favorites'
               ? 'bg-yellow-500 text-white shadow-lg'
               : 'bg-slate-700 text-white hover:bg-slate-600'
               }`}
           >
             <Star size={16} fill={activeTag === 'favorites' ? 'white' : 'none'} />
-            Favorites ({commands.filter(cmd => cmd.favorite).length})
+            Favorites ({getFavoritesCount()})
           </button>
           {CATEGORIES.map(category => (
             <button
@@ -1087,15 +1167,21 @@ export default function DSTCommandManager() {
         {filteredCommands.length === 0 ? (
           <div className="text-center text-white text-xl mt-16">
             {activeTag === 'all'
-              ? "No commands yet."
+              ? isAdminMode
+                ? "No commands yet. Click 'Add New Command' to get started!"
+                : "No commands yet."
               : activeTag === 'favorites'
                 ? "No favorite commands yet. Click the star icon on any command to add it to favorites!"
                 : CATEGORIES.find(cat => cat.id === activeTag)
-                  ? `No commands in the "${CATEGORIES.find(cat => cat.id === activeTag).name}" category. Add or edit commands to assign this category.`
-                  : `No commands with tag "${activeTag}". Try a different tag or add new commands.`}
+                  ? isAdminMode
+                    ? `No commands in the "${CATEGORIES.find(cat => cat.id === activeTag).name}" category. Add or edit commands to assign this category.`
+                    : `No commands in the "${CATEGORIES.find(cat => cat.id === activeTag).name}" category.`
+                  : isAdminMode
+                    ? `No commands with tag "${activeTag}". Try a different tag or add new commands.`
+                    : `No commands with tag "${activeTag}".`}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4 gap-6">
             {filteredCommands.map(cmd => (
               <div
                 key={cmd.id}
@@ -1107,10 +1193,10 @@ export default function DSTCommandManager() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={(e) => toggleFavorite(cmd, e)}
-                      className="text-yellow-500 hover:scale-110 transition-transform"
-                      title={cmd.favorite ? "Remove from favorites" : "Add to favorites"}
+                      className="text-yellow-500 hover:scale-110 transition-transform hover:animate-spin"
+                      title={isFavorited(cmd) ? "Remove from favorites" : "Add to favorites"}
                     >
-                      <Star size={20} fill={cmd.favorite ? '#eab308' : 'none'} stroke="#eab308" strokeWidth={2} />
+                      <Star size={20} fill={isFavorited(cmd) ? '#eab308' : 'none'} stroke="#eab308" strokeWidth={2} />
                     </button>
                     {cmd.category && (
                       <span
@@ -1121,31 +1207,33 @@ export default function DSTCommandManager() {
                       </span>
                     )}
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        handleEdit(cmd, e);
-                      }}
-                      className="text-blue-600 hover:text-blue-700 hover:scale-110 transition-all"
-                      title="Edit command"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        console.log('Delete button clicked for:', cmd.name);
-                        handleDelete(cmd, e);
-                      }}
-                      className="text-red-600 hover:text-red-700 hover:scale-110 transition-all"
-                      title="Delete command"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
+                  {isAdminMode && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          handleEdit(cmd, e);
+                        }}
+                        className="text-blue-600 hover:text-blue-700 hover:scale-110 transition-all"
+                        title="Edit command"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          console.log('Delete button clicked for:', cmd.name);
+                          handleDelete(cmd, e);
+                        }}
+                        className="text-red-600 hover:text-red-700 hover:scale-110 transition-all"
+                        title="Delete command"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Image display - use manual image if available, otherwise auto-fetched */}
